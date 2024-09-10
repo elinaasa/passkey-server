@@ -1,7 +1,7 @@
 // TODO: add imports
 import {NextFunction, Request, Response} from 'express';
 import CustomError from '../../classes/CustomError';
-import {User} from '@sharedTypes/DBTypes';
+import {User, UserWithNoPassword} from '@sharedTypes/DBTypes';
 import {
   AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,
@@ -24,6 +24,7 @@ import challengeModel from '../models/challengeModel';
 import passkeyUserModel from '../models/passkeyUserModel';
 import authenticatorDeviceModel from '../models/authenticatorDeviceModel';
 import jwt from 'jsonwebtoken';
+
 // check environment variables
 if (
   !process.env.NODE_ENV ||
@@ -35,13 +36,7 @@ if (
   throw new Error('Environment variables not set');
 }
 
-const {
-  NODE_ENV,
-  RP_ID,
-  AUTH_URL,
-  JWT_SECRET,
-  RP_NAME,
-} = process.env;
+const {NODE_ENV, RP_ID, AUTH_URL, JWT_SECRET, RP_NAME} = process.env;
 
 // Registration handler
 const setupPasskey = async (
@@ -300,32 +295,35 @@ const verifyAuthentication = async (
       });
     }
 
-    // TODO: Clear challenge from DB after successful authentication
+    // Clear challenge from DB after successful authentication
     await challengeModel.findOneAndDelete({email});
-    // TODO: Generate and send JWT token
-    const UserResponse = await fetchData<UserResponse>(
+
+    // Generate and send JWT token
+    const userResponse = await fetchData<UserWithNoPassword>(
       AUTH_URL + '/api/v1/users/' + user.userId,
     );
 
-    if (!UserResponse) {
-      next(new CustomError('User not found', 404));
-      return;
+    if (!userResponse) {
+      next(new CustomError('User not found', 400));
     }
+
+    console.log(userResponse);
 
     const token = jwt.sign(
       {
-        email: UserResponse.user.email,
-        level_name: UserResponse.user.level_name,
+        user_id: userResponse.user_id,
+        level_name: userResponse.level_name,
       },
       JWT_SECRET,
     );
-    const message: LoginResponse = {
-      message: 'User authenticated',
-      token,
-      user: UserResponse.user,
-    };
-    res.json(message);
 
+    const message: LoginResponse = {
+      message: 'Login success',
+      token,
+      user: userResponse,
+    };
+
+    res.json(message);
   } catch (error) {
     next(new CustomError((error as Error).message, 500));
   }
