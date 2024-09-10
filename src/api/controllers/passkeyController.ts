@@ -9,7 +9,7 @@ import {
   RegistrationResponseJSON,
 } from '@simplewebauthn/types';
 import fetchData from '../../utils/fetchData';
-import {UserResponse} from '@sharedTypes/MessageTypes';
+import {LoginResponse, UserResponse} from '@sharedTypes/MessageTypes';
 import {
   generateAuthenticationOptions,
   GenerateAuthenticationOptionsOpts,
@@ -23,7 +23,7 @@ import {Challenge, PasskeyUserGet} from '../../types/PasskeyTypes';
 import challengeModel from '../models/challengeModel';
 import passkeyUserModel from '../models/passkeyUserModel';
 import authenticatorDeviceModel from '../models/authenticatorDeviceModel';
-
+import jwt from 'jsonwebtoken';
 // check environment variables
 if (
   !process.env.NODE_ENV ||
@@ -39,7 +39,7 @@ const {
   NODE_ENV,
   RP_ID,
   AUTH_URL,
-  // JWT_SECRET,
+  JWT_SECRET,
   RP_NAME,
 } = process.env;
 
@@ -249,7 +249,7 @@ const verifyAuthentication = async (
     {},
     {email: string; authResponse: AuthenticationResponseJSON}
   >,
-  res: Response,
+  res: Response<LoginResponse>,
   next: NextFunction,
 ) => {
   try {
@@ -274,6 +274,7 @@ const verifyAuthentication = async (
     }
     // Verify authentication response
     const opts: VerifyAuthenticationResponseOpts = {
+      expectedRPID: RP_ID,
       response: authResponse,
       expectedChallenge: expectedChallenge.challenge,
       expectedOrigin:
@@ -302,6 +303,29 @@ const verifyAuthentication = async (
     // TODO: Clear challenge from DB after successful authentication
     await challengeModel.findOneAndDelete({email});
     // TODO: Generate and send JWT token
+    const UserResponse = await fetchData<UserResponse>(
+      AUTH_URL + '/api/v1/users/' + user.userId,
+    );
+
+    if (!UserResponse) {
+      next(new CustomError('User not found', 404));
+      return;
+    }
+
+    const token = jwt.sign(
+      {
+        email: UserResponse.user.email,
+        level_name: UserResponse.user.level_name,
+      },
+      JWT_SECRET,
+    );
+    const message: LoginResponse = {
+      message: 'User authenticated',
+      token,
+      user: UserResponse.user,
+    };
+    res.json(message);
+
   } catch (error) {
     next(new CustomError((error as Error).message, 500));
   }
